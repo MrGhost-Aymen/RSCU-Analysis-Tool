@@ -13,6 +13,8 @@ import textwrap
 import os
 from multiprocessing import Pool
 from functools import partial
+import json
+from matplotlib.colors import LinearSegmentedColormap
 
 # Valid amino acid codes (including stop codon)
 VALID_AA_CODES = set('ACDEFGHIKLMNPQRSTVWY*')
@@ -26,433 +28,9 @@ AA_1_TO_3 = {
     '*': 'End'  # Stop codon
 }
 
-# All NCBI genetic codes (25 variants)
-GENETIC_CODES = {
-    # 1. The Standard Code
-    'standard': {
-        'name': 'Standard',
-        'id': 1,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': '*', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['TTG', 'CTG', 'ATG']
-    },
-
-    # 2. The Vertebrate Mitochondrial Code
-    'vertebrate_mito': {
-        'name': 'Vertebrate Mitochondrial',
-        'id': 2,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'M', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': 'W', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': '*', 'AGG': '*',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['ATT', 'ATC', 'ATA', 'ATG', 'GTG']
-    },
-
-    # 3. The Yeast Mitochondrial Code
-    'yeast_mito': {
-        'name': 'Yeast Mitochondrial',
-        'id': 3,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'T', 'CTC': 'T', 'CTA': 'T', 'CTG': 'T',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'M', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': 'W', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['ATA', 'ATG', 'GTG']
-    },
-
-    # 4. The Mold, Protozoan, and Coelenterate Mitochondrial Code and the Mycoplasma/Spiroplasma Code
-    'mold_protozoan_mito': {
-        'name': 'Mold/Protozoan Mitochondrial',
-        'id': 4,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': 'W', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['TTG', 'CTG', 'ATG', 'ATT', 'ATC', 'ATA', 'GTG']
-    },
-
-    # 5. The Invertebrate Mitochondrial Code
-    'invertebrate_mito': {
-        'name': 'Invertebrate Mitochondrial',
-        'id': 5,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'M', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': 'W', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'S', 'AGG': 'S',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['TTG', 'ATG', 'ATT', 'ATC', 'ATA', 'GTG']
-    },
-
-    # 6. The Ciliate, Dasycladacean and Hexamita Nuclear Code
-    'ciliate': {
-        'name': 'Ciliate/Dasycladacean/Hexamita',
-        'id': 6,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': 'Q', 'TAG': 'Q',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': '*', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['TTG', 'CTG', 'ATG']
-    },
-
-    # 9. The Echinoderm and Flatworm Mitochondrial Code
-    'echinoderm_flatworm_mito': {
-        'name': 'Echinoderm/Flatworm Mitochondrial',
-        'id': 9,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'N', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': 'W', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'S', 'AGG': 'S',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['ATG', 'GTG']
-    },
-
-    # 10. The Euplotid Nuclear Code
-    'euplotid': {
-        'name': 'Euplotid Nuclear',
-        'id': 10,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': 'C', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['TTG', 'CTG', 'ATG']
-    },
-
-    # 11. The Bacterial, Archaeal and Plant Plastid Code
-    'bacterial_plant_plastid': {
-        'name': 'Bacterial/Archaeal/Plant Plastid',
-        'id': 11,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': '*', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['TTG', 'CTG', 'ATG', 'GTG', 'ATT', 'ATC', 'ATA']
-    },
-
-    # 12. The Alternative Yeast Nuclear Code
-    'alternative_yeast': {
-        'name': 'Alternative Yeast Nuclear',
-        'id': 12,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'S',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': '*', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['CTG', 'ATG']
-    },
-
-    # 13. The Ascidian Mitochondrial Code
-    'ascidian_mito': {
-        'name': 'Ascidian Mitochondrial',
-        'id': 13,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'M', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': 'W', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'G', 'AGG': 'G',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['ATA', 'ATG', 'GTG']
-    },
-
-    # 14. The Alternative Flatworm Mitochondrial Code
-    'alternative_flatworm_mito': {
-        'name': 'Alternative Flatworm Mitochondrial',
-        'id': 14,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': 'Y', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'N', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': 'W', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'S', 'AGG': 'S',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['ATG', 'GTG']
-    },
-
-    # 16. Chlorophycean Mitochondrial Code
-    'chlorophycean_mito': {
-        'name': 'Chlorophycean Mitochondrial',
-        'id': 16,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': 'L',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': '*', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['ATG', 'GTG']
-    },
-
-    # 21. Trematode Mitochondrial Code
-    'trematode_mito': {
-        'name': 'Trematode Mitochondrial',
-        'id': 21,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'M', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'N', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': 'W', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'S', 'AGG': 'S',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['ATG', 'GTG']
-    },
-
-    # 22. Scenedesmus obliquus Mitochondrial Code
-    'scenedesmus_mito': {
-        'name': 'Scenedesmus obliquus Mitochondrial',
-        'id': 22,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': '*', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['ATG']
-    },
-
-    # 23. Thraustochytrium Mitochondrial Code
-    'thraustochytrium_mito': {
-        'name': 'Thraustochytrium Mitochondrial',
-        'id': 23,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': '*', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['ATG', 'GTG']
-    },
-
-    # 24. Pterobranchia Mitochondrial Code
-    'pterobranchia_mito': {
-        'name': 'Pterobranchia Mitochondrial',
-        'id': 24,
-        'table': {
-            'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-            'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-            'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-            'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-            'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-            'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-            'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-            'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-            'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-            'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-            'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-            'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-            'TGT': 'C', 'TGC': 'C', 'TGA': 'W', 'TGG': 'W',
-            'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-            'AGT': 'S', 'AGC': 'S', 'AGA': 'S', 'AGG': 'S',
-            'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G'
-        },
-        'start': ['ATG', 'GTG']
-    }
-}
+# Load genetic codes from JSON file
+with open('genetic_codes.json', 'r') as f:
+    GENETIC_CODES = json.load(f)
 
 def validate_genetic_codes():
     """Validate all genetic code tables for correct amino acid codes."""
@@ -578,7 +156,7 @@ def calculate_rscu(codon_count, genetic_code_name='standard'):
             for codon in codons:
                 observed = codon_count.get(codon, 0)
                 expected = total / n
-                rscu[codon] = observed / expected if expected != 0 else 0.0
+                rscu[codon] = min(observed / expected if expected != 0 else 0.0, 2.5)  # Cap RSCU at 2.5
     
     return rscu
 
@@ -655,7 +233,7 @@ def generate_stats(codon_count, total_codons, seq_lengths, gc_contents, cai, gen
     return stats, codon_percent, aa_usage
 
 def plot_rscu(rscu, genetic_code_name='standard', output_prefix='rscu', plot_type='all'):
-    """Create multiple visualizations of RSCU values: grouped bar plot, stacked bar plot, and heatmap."""
+    """Create multiple visualizations of RSCU values."""
     genetic_code = get_genetic_code(genetic_code_name)
 
     # Prepare data for plotting
@@ -677,16 +255,17 @@ def plot_rscu(rscu, genetic_code_name='standard', output_prefix='rscu', plot_typ
     # Set up plot styling
     plt.style.use('seaborn-v0_8-whitegrid')
     plt.rcParams.update({
-        'font.size': 12,
-        'axes.labelsize': 14,
-        'axes.titlesize': 16,
+        'font.size': 10,
+        'axes.labelsize': 12,
+        'axes.titlesize': 14,
         'legend.fontsize': 10,
-        'xtick.labelsize': 10,
-        'ytick.labelsize': 12,
-        'font.family': 'Arial'
+        'xtick.labelsize': 9,
+        'ytick.labelsize': 10,
+        'font.family': 'Arial',
+        'figure.autolayout': True
     })
 
-    # Plot 1: Grouped Bar Plot (Original)
+    # Plot 1: Grouped Bar Plot
     if plot_type in ['grouped', 'all']:
         fig, ax = plt.subplots(figsize=(16, 8))
         palette = sns.color_palette("husl", n_colors=len(df['Amino Acid'].unique()))
@@ -722,9 +301,8 @@ def plot_rscu(rscu, genetic_code_name='standard', output_prefix='rscu', plot_typ
         plt.savefig(f"{output_prefix}_grouped.pdf", bbox_inches='tight')
         plt.close()
 
-    # Plot 2: Stacked Bar Plot (Matching Figure 3)
+    # Plot 2: Stacked Bar Plot
     if plot_type in ['stacked', 'all']:
-        # Prepare data for stacking
         pivot_data = {}
         for aa in df['Amino Acid'].unique():
             aa_codons = df[df['Amino Acid'] == aa]
@@ -737,14 +315,10 @@ def plot_rscu(rscu, genetic_code_name='standard', output_prefix='rscu', plot_typ
         codons_per_aa = {aa: [col for col in pivot_df.columns if pivot_df.loc[aa, col] > 0]
                         for aa in amino_acids}
 
-        # Create figure
         fig, ax = plt.subplots(figsize=(12, 8))
-
-        # Define a cyclic color palette for codons (matching Figure 3)
-        colors = ['#FFB6C1', '#DAA520', '#87CEEB', '#90EE90', '#D3D3D3']  # Pink, Orange, Blue, Green, Gray
+        colors = ['#FFB6C1', '#DAA520', '#87CEEB', '#90EE90', '#D3D3D3']
         color_cycle = colors * (max(len(codons) for codons in codons_per_aa.values()) // len(colors) + 1)
 
-        # Plot stacked bars
         bottom = pd.Series(0, index=amino_acids)
         for codon_idx in range(max(len(codons) for codons in codons_per_aa.values())):
             values = []
@@ -760,7 +334,6 @@ def plot_rscu(rscu, genetic_code_name='standard', output_prefix='rscu', plot_typ
                     values.append(0)
                     labels.append('')
 
-            # Plot this layer
             bars = ax.bar(
                 amino_acids,
                 values,
@@ -769,12 +342,10 @@ def plot_rscu(rscu, genetic_code_name='standard', output_prefix='rscu', plot_typ
                 width=0.8
             )
 
-            # Annotate codons on the bars
             for bar, label in zip(bars, labels):
-                if label:  # Only annotate if there's a codon
+                if label:
                     height = bar.get_height()
                     if height > 0:
-                        # Map the bar's x-position to the corresponding amino acid
                         bar_idx = int(bar.get_x() + bar.get_width() / 2)
                         aa = amino_acids[bar_idx]
                         y_pos = bottom[aa] + height / 2
@@ -789,10 +360,8 @@ def plot_rscu(rscu, genetic_code_name='standard', output_prefix='rscu', plot_typ
                             rotation=0
                         )
 
-            # Update the bottom for the next stack
             bottom += pd.Series(values, index=amino_acids)
 
-        # Customize plot
         ax.set_title('Codon Usage', pad=20)
         ax.set_xlabel('')
         ax.set_ylabel('RSCU value', labelpad=10)
@@ -805,45 +374,96 @@ def plot_rscu(rscu, genetic_code_name='standard', output_prefix='rscu', plot_typ
         plt.savefig(f"{output_prefix}_stacked.pdf", bbox_inches='tight')
         plt.close()
 
-    # Plot 3: Enhanced Heatmap (Adjusted to match RSCU style)
+    # Plot 3: Enhanced Heatmap
     if plot_type in ['heatmap', 'all']:
-        # Create a pivot table for the heatmap
+        # Create pivot table
         pivot_df = df.pivot(index='Amino Acid 3', columns='Codon', values='RSCU').fillna(0)
-
-        # Sort codons and amino acids for consistency with original
+        
+        # Sort by amino acid and codon
         pivot_df = pivot_df[sorted(pivot_df.columns)]
         pivot_df.sort_index(inplace=True)
-
-        # Create figure
-        plt.figure(figsize=(18, 10))
         
-        # Plot heatmap with specific RSCU styling
-        heatmap = sns.heatmap(
+        # Create figure with dynamic sizing
+        plt.figure(figsize=(
+            max(18, len(pivot_df.columns)*0.7),
+            max(10, len(pivot_df.index)*0.8)
+        ))
+        
+        # Create custom colormap
+        colors = ["#FFFFFF", "#FFE5E5", "#FFB2B2", "#FF7F7F", "#FF4C4C", "#FF0000"]
+        cmap = LinearSegmentedColormap.from_list("custom_reds", colors)
+        
+        # Plot enhanced heatmap
+        ax = sns.heatmap(
             pivot_df,
-            cmap="YlOrRd",
+            cmap=cmap,
             linewidths=0.5,
-            linecolor='gray',
+            linecolor='#DDDDDD',
             annot=True,
-            fmt=".2f",
-            annot_kws={'size': 8, 'color': 'black'},
-            cbar_kws={'label': 'RSCU Value', 'orientation': 'vertical'},
+            fmt=".1f",
+            annot_kws={
+                'size': 9,
+                'color': 'black',
+                'weight': 'normal'
+            },
+            cbar_kws={
+                'label': 'RSCU Value', 
+                'shrink': 0.8,
+                'aspect': 20
+            },
             vmin=0,
             vmax=2.5,
-            square=False,
+            square=True,
             xticklabels=True,
-            yticklabels=True
+            yticklabels=True,
+            mask=pivot_df == 0
         )
-
-        # Customize the plot
-        plt.title(f"RSCU Heatmap by Amino Acid\nGenetic Code: {genetic_code['name']}", pad=20)
-        plt.xlabel('Codon', labelpad=10)
-        plt.ylabel('Amino Acid', labelpad=10)
-
-        # Adjust label readability
-        plt.xticks(rotation=45, ha='right')
-        plt.yticks(rotation=0)
-
-        # Ensure layout prevents cutoff
+        
+        # Highlight preferred codons (RSCU > 1)
+        for y in range(pivot_df.shape[0]):
+            for x in range(pivot_df.shape[1]):
+                if pivot_df.iloc[y, x] > 1.0:
+                    ax.add_patch(plt.Rectangle(
+                        (x, y), 1, 1,
+                        fill=False,
+                        edgecolor='blue',
+                        lw=1,
+                        linestyle='--'
+                    ))
+        
+        # Customize plot
+        plt.title(
+            f"Codon Usage Bias (RSCU)\n{genetic_code['name']} Genetic Code",
+            pad=20,
+            fontsize=14,
+            weight='bold'
+        )
+        plt.xlabel('Codon', labelpad=10, fontsize=12)
+        plt.ylabel('Amino Acid', labelpad=10, fontsize=12)
+        
+        # Rotate x-axis labels diagonally
+        ax.set_xticklabels(
+            ax.get_xticklabels(),
+            rotation=45,
+            ha='right',
+            rotation_mode='anchor',
+            fontsize=10
+        )
+        
+        # Adjust y-axis labels
+        ax.set_yticklabels(
+            ax.get_yticklabels(),
+            rotation=0,
+            fontsize=10,
+            va='center'
+        )
+        
+        # Add grid lines
+        ax.set_xticks(np.arange(pivot_df.shape[1]) + 0.5, minor=True)
+        ax.set_yticks(np.arange(pivot_df.shape[0]) + 0.5, minor=True)
+        ax.grid(which="minor", color="#EEEEEE", linestyle='-', linewidth=1)
+        ax.tick_params(which="minor", bottom=False, left=False)
+        
         plt.tight_layout()
         plt.savefig(f"{output_prefix}_heatmap.png", dpi=300, bbox_inches='tight')
         plt.savefig(f"{output_prefix}_heatmap.pdf", bbox_inches='tight')
@@ -866,6 +486,8 @@ def save_results(rscu, stats, codon_percent, aa_usage, genetic_code_name='standa
             for key, value in stats.items():
                 if value is None:
                     value = "N/A"
+                elif isinstance(value, float):
+                    value = f"{value:.2f}"
                 f.write(f"{key.replace('_', ' ').title()}: {value}\n")
             
             f.write("\n=== Amino Acid Usage ===\n")
@@ -884,8 +506,10 @@ def load_reference_weights(weights_file):
         with open(weights_file, 'r') as f:
             for line in f:
                 if line.strip() and not line.startswith('#'):
-                    codon, weight = line.strip().split()
-                    weights[codon] = float(weight)
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        codon, weight = parts[0], parts[1]
+                        weights[codon] = float(weight)
         return weights
     except FileNotFoundError:
         raise FileNotFoundError(f"Reference weights file not found: {weights_file}")
@@ -918,8 +542,8 @@ def main():
             
             Output Files:
               <prefix>_grouped.png/pdf   - RSCU grouped bar plot
-              <prefix>_stacked.png/pdf   - RSCU stacked bar plot (BMC Plant Biology style)
-              <prefix>_heatmap.png/pdf   - RSCU heatmap by amino acid
+              <prefix>_stacked.png/pdf   - RSCU stacked bar plot
+              <prefix>_heatmap.png/pdf   - Enhanced RSCU heatmap
               <prefix>_values.tsv       - Tab-separated RSCU values
               <prefix>_stats.txt        - Summary statistics
         ''')
@@ -938,7 +562,7 @@ def main():
     parser.add_argument('-p', '--parallel', action='store_true',
                        help="Use parallel processing for large datasets")
     parser.add_argument('--plot_type', choices=['grouped', 'stacked', 'heatmap', 'all'], default='all',
-                       help="Type of plot to generate: grouped, stacked, heatmap, or all (default: all)")
+                       help="Type of plot to generate (default: all)")
     
     args = parser.parse_args()
     
