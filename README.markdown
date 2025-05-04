@@ -167,6 +167,9 @@ For input `ndhF.fasta` with prefix `output`:
   C: 150 (3.0%)
   ...
   ```
+![rscu_stacked](https://github.com/user-attachments/assets/c0f5427b-d798-4f01-b31c-9edc687fcf29)
+![rscu_heatmap](https://github.com/user-attachments/assets/f70cc745-18f2-438e-baf5-3df75be7e26f)
+![rscu_grouped](https://github.com/user-attachments/assets/d3088a0d-4c8e-45ee-87e8-e0514ac5b81c)
 
 ### Console Output
 
