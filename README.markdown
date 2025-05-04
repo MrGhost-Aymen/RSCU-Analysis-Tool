@@ -168,7 +168,7 @@ For input `ndhF.fasta` with prefix `output`:
   ...
   ```
 ![rscu_stacked](https://github.com/user-attachments/assets/c0f5427b-d798-4f01-b31c-9edc687fcf29)
-![rscu_heatmap](https://github.com/user-attachments/assets/f70cc745-18f2-438e-baf5-3df75be7e26f)
+![rscu_heatmap](https://github.com/user-attachments/assets/b6276a25-4827-4d8e-9d23-f142925f556d)
 ![rscu_grouped](https://github.com/user-attachments/assets/d3088a0d-4c8e-45ee-87e8-e0514ac5b81c)
 
 ### Console Output
@@ -186,10 +186,10 @@ Results saved with prefix: results/output_*
 
 ## Example
 
-Analyze the `ndhF` gene sequences with the `bacterial_plant_plastid` genetic code:
+Analyze the `CDs` sequences with the `bacterial_plant_plastid` genetic code:
 
 ```bash
-python RSCU.py ndhF.fasta -g bacterial_plant_plastid -o ndhf_analysis -d results
+python RSCU.py CDs.fasta -g bacterial_plant_plastid -o ndhf_analysis -d results
 ```
 
 With CAI weights and parallel processing:
