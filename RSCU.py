@@ -17,6 +17,15 @@ from functools import partial
 # Valid amino acid codes (including stop codon)
 VALID_AA_CODES = set('ACDEFGHIKLMNPQRSTVWY*')
 
+# Mapping of one-letter to three-letter amino acid codes
+AA_1_TO_3 = {
+    'A': 'Ala', 'C': 'Cys', 'D': 'Asp', 'E': 'Glu', 'F': 'Phe',
+    'G': 'Gly', 'H': 'His', 'I': 'Ile', 'K': 'Lys', 'L': 'Leu',
+    'M': 'Met', 'N': 'Asn', 'P': 'Pro', 'Q': 'Gln', 'R': 'Arg',
+    'S': 'Ser', 'T': 'Thr', 'V': 'Val', 'W': 'Trp', 'Y': 'Tyr',
+    '*': 'End'  # Stop codon
+}
+
 # All NCBI genetic codes (25 variants)
 GENETIC_CODES = {
     # 1. The Standard Code
@@ -645,10 +654,11 @@ def generate_stats(codon_count, total_codons, seq_lengths, gc_contents, cai, gen
     
     return stats, codon_percent, aa_usage
 
-def plot_rscu(rscu, genetic_code_name='standard', output_prefix='rscu'):
-    """Create enhanced RSCU visualization with bar plot and heatmap."""
+def plot_rscu(rscu, genetic_code_name='standard', output_prefix='rscu', plot_type='all'):
+    """Create multiple visualizations of RSCU values: grouped bar plot, stacked bar plot, and heatmap."""
     genetic_code = get_genetic_code(genetic_code_name)
-    
+
+    # Prepare data for plotting
     data = []
     for codon, value in rscu.items():
         aa = genetic_code['table'].get(codon, 'X')
@@ -661,39 +671,183 @@ def plot_rscu(rscu, genetic_code_name='standard', output_prefix='rscu'):
     
     df = pd.DataFrame(data)
     df = df[df['Type'] == 'Normal']
-    df.sort_values(['Amino Acid', 'Codon'], inplace=True)
-    
-    # Bar plot
-    plt.figure(figsize=(16, 8))
-    sns.set_style("whitegrid")
-    palette = sns.color_palette("husl", n_colors=len(df['Amino Acid'].unique()))
-    
-    ax = sns.barplot(x='Codon', y='RSCU', hue='Amino Acid', data=df, 
-                    palette=palette, dodge=False)
-    
-    plt.axhline(1.0, color='red', linestyle='--', linewidth=1)
-    plt.title(f"Relative Synonymous Codon Usage (RSCU)\nGenetic Code: {genetic_code['name']}")
-    plt.xlabel("Codons")
-    plt.ylabel("RSCU Value")
-    plt.xticks(rotation=90)
-    
-    handles, labels = ax.get_legend_handles_labels()
-    plt.legend(handles, labels, title='Amino Acid', 
-              bbox_to_anchor=(1.05, 1), loc='upper left')
-    
-    plt.tight_layout()
-    plt.savefig(f"{output_prefix}_histogram.png", dpi=300, bbox_inches='tight')
-    plt.savefig(f"{output_prefix}_histogram.pdf", bbox_inches='tight')
-    plt.close()
-    
-    # Heatmap
-    plt.figure(figsize=(12, 8))
-    pivot_df = df.pivot(index='Amino Acid', columns='Codon', values='RSCU')
-    sns.heatmap(pivot_df, cmap="YlOrRd", linewidths=0.5, annot=True, fmt=".2f")
-    plt.title(f"RSCU Heatmap by Amino Acid\nGenetic Code: {genetic_code['name']}")
-    plt.tight_layout()
-    plt.savefig(f"{output_prefix}_heatmap.png", dpi=300)
-    plt.close()
+    df['Amino Acid 3'] = df['Amino Acid'].map(AA_1_TO_3)
+    df.sort_values(['Amino Acid', 'RSCU'], ascending=[True, False], inplace=True)
+
+    # Set up plot styling
+    plt.style.use('seaborn-v0_8-whitegrid')
+    plt.rcParams.update({
+        'font.size': 12,
+        'axes.labelsize': 14,
+        'axes.titlesize': 16,
+        'legend.fontsize': 10,
+        'xtick.labelsize': 10,
+        'ytick.labelsize': 12,
+        'font.family': 'Arial'
+    })
+
+    # Plot 1: Grouped Bar Plot (Original)
+    if plot_type in ['grouped', 'all']:
+        fig, ax = plt.subplots(figsize=(16, 8))
+        palette = sns.color_palette("husl", n_colors=len(df['Amino Acid'].unique()))
+        
+        sns.barplot(
+            x='Codon',
+            y='RSCU',
+            hue='Amino Acid',
+            data=df,
+            palette=palette,
+            dodge=False,
+            ax=ax
+        )
+        
+        ax.axhline(1.0, color='red', linestyle='--', linewidth=1, label='RSCU = 1')
+        ax.set_title(
+            f"Relative Synonymous Codon Usage (RSCU)\nGenetic Code: {genetic_code['name']}",
+            pad=20
+        )
+        ax.set_xlabel("Codons", labelpad=10)
+        ax.set_ylabel("RSCU Value", labelpad=10)
+        ax.tick_params(axis='x', rotation=90)
+        
+        ax.legend(
+            title='Amino Acid',
+            bbox_to_anchor=(1.05, 1),
+            loc='upper left',
+            borderaxespad=0
+        )
+        
+        plt.tight_layout()
+        plt.savefig(f"{output_prefix}_grouped.png", dpi=300, bbox_inches='tight')
+        plt.savefig(f"{output_prefix}_grouped.pdf", bbox_inches='tight')
+        plt.close()
+
+    # Plot 2: Stacked Bar Plot (Matching Figure 3)
+    if plot_type in ['stacked', 'all']:
+        # Prepare data for stacking
+        pivot_data = {}
+        for aa in df['Amino Acid'].unique():
+            aa_codons = df[df['Amino Acid'] == aa]
+            pivot_data[aa] = {}
+            for _, row in aa_codons.iterrows():
+                pivot_data[aa][row['Codon']] = row['RSCU']
+
+        pivot_df = pd.DataFrame.from_dict(pivot_data, orient='index').fillna(0)
+        amino_acids = pivot_df.index
+        codons_per_aa = {aa: [col for col in pivot_df.columns if pivot_df.loc[aa, col] > 0]
+                        for aa in amino_acids}
+
+        # Create figure
+        fig, ax = plt.subplots(figsize=(12, 8))
+
+        # Define a cyclic color palette for codons (matching Figure 3)
+        colors = ['#FFB6C1', '#DAA520', '#87CEEB', '#90EE90', '#D3D3D3']  # Pink, Orange, Blue, Green, Gray
+        color_cycle = colors * (max(len(codons) for codons in codons_per_aa.values()) // len(colors) + 1)
+
+        # Plot stacked bars
+        bottom = pd.Series(0, index=amino_acids)
+        for codon_idx in range(max(len(codons) for codons in codons_per_aa.values())):
+            values = []
+            labels = []
+            for aa in amino_acids:
+                codons = codons_per_aa[aa]
+                if codon_idx < len(codons):
+                    codon = codons[codon_idx]
+                    rscu = pivot_df.loc[aa, codon]
+                    values.append(rscu)
+                    labels.append(codon)
+                else:
+                    values.append(0)
+                    labels.append('')
+
+            # Plot this layer
+            bars = ax.bar(
+                amino_acids,
+                values,
+                bottom=bottom,
+                color=color_cycle[codon_idx],
+                width=0.8
+            )
+
+            # Annotate codons on the bars
+            for bar, label in zip(bars, labels):
+                if label:  # Only annotate if there's a codon
+                    height = bar.get_height()
+                    if height > 0:
+                        # Map the bar's x-position to the corresponding amino acid
+                        bar_idx = int(bar.get_x() + bar.get_width() / 2)
+                        aa = amino_acids[bar_idx]
+                        y_pos = bottom[aa] + height / 2
+                        ax.text(
+                            bar.get_x() + bar.get_width() / 2,
+                            y_pos,
+                            label,
+                            ha='center',
+                            va='center',
+                            fontsize=10,
+                            color='black',
+                            rotation=0
+                        )
+
+            # Update the bottom for the next stack
+            bottom += pd.Series(values, index=amino_acids)
+
+        # Customize plot
+        ax.set_title('Codon Usage', pad=20)
+        ax.set_xlabel('')
+        ax.set_ylabel('RSCU value', labelpad=10)
+        ax.set_xticks(range(len(amino_acids)))
+        ax.set_xticklabels([AA_1_TO_3[aa] for aa in amino_acids], rotation=45, ha='right')
+        ax.set_ylim(0, 6)
+        
+        plt.tight_layout()
+        plt.savefig(f"{output_prefix}_stacked.png", dpi=300, bbox_inches='tight')
+        plt.savefig(f"{output_prefix}_stacked.pdf", bbox_inches='tight')
+        plt.close()
+
+    # Plot 3: Enhanced Heatmap (Adjusted to match RSCU style)
+    if plot_type in ['heatmap', 'all']:
+        # Create a pivot table for the heatmap
+        pivot_df = df.pivot(index='Amino Acid 3', columns='Codon', values='RSCU').fillna(0)
+
+        # Sort codons and amino acids for consistency with original
+        pivot_df = pivot_df[sorted(pivot_df.columns)]
+        pivot_df.sort_index(inplace=True)
+
+        # Create figure
+        plt.figure(figsize=(18, 10))
+        
+        # Plot heatmap with specific RSCU styling
+        heatmap = sns.heatmap(
+            pivot_df,
+            cmap="YlOrRd",
+            linewidths=0.5,
+            linecolor='gray',
+            annot=True,
+            fmt=".2f",
+            annot_kws={'size': 8, 'color': 'black'},
+            cbar_kws={'label': 'RSCU Value', 'orientation': 'vertical'},
+            vmin=0,
+            vmax=2.5,
+            square=False,
+            xticklabels=True,
+            yticklabels=True
+        )
+
+        # Customize the plot
+        plt.title(f"RSCU Heatmap by Amino Acid\nGenetic Code: {genetic_code['name']}", pad=20)
+        plt.xlabel('Codon', labelpad=10)
+        plt.ylabel('Amino Acid', labelpad=10)
+
+        # Adjust label readability
+        plt.xticks(rotation=45, ha='right')
+        plt.yticks(rotation=0)
+
+        # Ensure layout prevents cutoff
+        plt.tight_layout()
+        plt.savefig(f"{output_prefix}_heatmap.png", dpi=300, bbox_inches='tight')
+        plt.savefig(f"{output_prefix}_heatmap.pdf", bbox_inches='tight')
+        plt.close()
 
 def save_results(rscu, stats, codon_percent, aa_usage, genetic_code_name='standard', output_prefix='rscu'):
     """Save all results to files."""
@@ -763,8 +917,9 @@ def main():
               pterobranchia_mito (24)       - Pterobranchia Mitochondrial
             
             Output Files:
-              <prefix>_histogram.png/pdf - RSCU bar plot
-              <prefix>_heatmap.png       - RSCU heatmap by AA
+              <prefix>_grouped.png/pdf   - RSCU grouped bar plot
+              <prefix>_stacked.png/pdf   - RSCU stacked bar plot (BMC Plant Biology style)
+              <prefix>_heatmap.png/pdf   - RSCU heatmap by amino acid
               <prefix>_values.tsv       - Tab-separated RSCU values
               <prefix>_stats.txt        - Summary statistics
         ''')
@@ -782,6 +937,8 @@ def main():
                        help="Minimum sequence length in nucleotides (default: 30)")
     parser.add_argument('-p', '--parallel', action='store_true',
                        help="Use parallel processing for large datasets")
+    parser.add_argument('--plot_type', choices=['grouped', 'stacked', 'heatmap', 'all'], default='all',
+                       help="Type of plot to generate: grouped, stacked, heatmap, or all (default: all)")
     
     args = parser.parse_args()
     
@@ -814,7 +971,7 @@ def main():
     )
     
     # Output results
-    plot_rscu(rscu, args.genetic_code, output_prefix)
+    plot_rscu(rscu, args.genetic_code, output_prefix, args.plot_type)
     save_results(rscu, stats, codon_percent, aa_usage, args.genetic_code, output_prefix)
     
     # Print summary
