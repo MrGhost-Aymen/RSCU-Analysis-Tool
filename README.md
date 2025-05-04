@@ -4,7 +4,7 @@ The **RSCU Analysis Tool** (`RSCU.py`) is a Python script for analyzing codon us
 
 ## Features
 
-- **Codon Usage Analysis**: Computes RSCU for each codon, showing bias in synonymous codon usage.
+- **Codon Usage Analysis** : Computes RSCU for each codon, showing bias in synonymous codon usage.
 - **Multiple Genetic Codes**: Supports 25 NCBI genetic codes, including `standard`, `bacterial_plant_plastid`, `chlorophycean_mito`, and more.
 - **Advanced Metrics**:
   - **CAI**: Measures codon adaptation to a reference set (optional).
