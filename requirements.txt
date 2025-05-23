@@ -1,0 +1,9 @@
+biopython
+pandas
+matplotlib
+seaborn
+numpy
+scipy
+plotly
+prince
+openpyxl
